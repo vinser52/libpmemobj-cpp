@@ -29,11 +29,31 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-find_path(PMEMOBJ_INCLUDE_DIR libpmemobj.h)
-find_library(PMEMOBJ_LIBRARY NAMES pmemobj libpmemobj)
-find_library(PMEM_LIBRARY NAMES pmem libpmem)
+cmake_minimum_required(VERSION 3.3)
+project(pmpong CXX)
 
-set(PMEMOBJ_LIBRARIES ${PMEMOBJ_LIBRARY} ${PMEM_LIBRARY})
-set(PMEMOBJ_INCLUDE_DIRS ${PMEMOBJ_INCLUDE_DIR})
+set(CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_STANDARD 11)
 
-mark_as_advanced(PMEMOBJ_LIBRARY PMEM_LIBRARY PMEMOBJ_INCLUDE_DIR)
+include(FindThreads)
+
+find_package(PkgConfig QUIET)
+if(PKG_CONFIG_FOUND)
+	pkg_check_modules(PMEMOBJ++ REQUIRED libpmemobj++)
+
+	pkg_check_modules(SFML REQUIRED sfml-all>=2.4)
+else()
+	find_package(PMEMOBJ++ REQUIRED)
+
+	# SFML 2.5 has different cmake interface than <= 2.4 so previous versions are not supported
+	find_package(SFML 2.5 REQUIRED COMPONENTS graphics window system)
+	set(SFML_LIBRARIES sfml-graphics sfml-window sfml-system)
+endif()
+
+link_directories(${PMEMOBJ++_LIBRARY_DIRS})
+
+add_executable(pmpong Ball.cpp GameController.cpp GameOverView.cpp
+		GameView.cpp MainGame.cpp MenuView.cpp Paddle.cpp
+		PongGameStatus.cpp Pool.cpp)
+target_include_directories(pmpong PUBLIC ${SFML_INCLUDE_DIR} ${PMEMOBJ++_INCLUDE_DIRS} .)
+target_link_libraries(pmpong ${PMEMOBJ++_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} ${SFML_LIBRARIES})
