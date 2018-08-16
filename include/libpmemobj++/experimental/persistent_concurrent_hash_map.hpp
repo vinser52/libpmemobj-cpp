@@ -376,10 +376,13 @@ public:
 		bucket &operator[](size_t i) const
 		{
 			assert(i < size());
+
 			size_t table_block = first_block_in_segment(my_seg);
 			size_t b_size = block_size(table_block);
+
 			table_block += i / b_size;
 			i = i % b_size;
+
 			return (*my_table)[table_block]
 					  [static_cast<std::ptrdiff_t>(i)];
 		}
@@ -473,6 +476,7 @@ public:
 		enable(pool_base &pop)
 		{
 			block_range blocks = segment_blocks(my_seg);
+
 			for (size_t b = blocks.first; b < blocks.second; ++b) {
 				if ((*my_table)[b] == nullptr)
 					make_persistent_atomic<bucket[]>(
@@ -488,6 +492,7 @@ public:
 		disable()
 		{
 			block_range blocks = segment_blocks(my_seg);
+
 			for (size_t b = blocks.first; b < blocks.second; ++b) {
 				if ((*my_table)[b] != nullptr) {
 					delete_persistent<bucket[]>(
@@ -515,11 +520,12 @@ public:
 		is_valid() const
 		{
 			block_range blocks = segment_blocks(my_seg);
+
 			for (size_t b = blocks.first; b < blocks.second; ++b) {
-				if ((*my_table)[b] == nullptr) {
+				if ((*my_table)[b] == nullptr)
 					return false;
-				}
 			}
+
 			return true;
 		}
 
@@ -533,6 +539,7 @@ public:
 		segment_blocks(size_t seg)
 		{
 			size_t begin = first_block_in_segment(seg);
+
 			return block_range(begin,
 					   begin + blocks_in_segment(seg));
 		}
@@ -555,11 +562,15 @@ public:
 	persistent_hash_map_base()
 	{
 		PMEMoid oid = pmemobj_oid(this);
+
 		assert(!OID_IS_NULL(oid));
+
 		my_pool_uuid = oid.pool_uuid_lo;
+
 		for (size_type i = 0; i < embedded_block; ++i) // fill the table
 			my_table[i] = pmemobj_oid(my_embedded_segment +
 						  segment_base(i));
+
 		assert(embedded_block <= first_block);
 	}
 
@@ -571,13 +582,16 @@ public:
 	{
 		persistent_ptr<node_base> rehashed_flag =
 			is_initial ? rehashed : rehash_req;
+
 		bucket *b = ptr.get();
 		for (size_type i = 0; i < sz; ++i, ++b) {
 			assert(*reinterpret_cast<intptr_t *>(&b->mutex.get()) ==
 			       0);
+
 			b->tmp_node = rehashed_flag;
 			b->node_list = empty_bucket;
 		}
+
 		get_pool_base().persist(ptr.get(), sizeof(ptr[0]) * sz);
 	}
 
@@ -589,18 +603,23 @@ public:
 	{
 		persistent_ptr<node_base> rehashed_flag =
 			is_initial ? rehashed : rehash_req;
+
 		for (size_type i = 0; i < segment.size(); ++i) {
 			bucket *b = &(segment[i]);
+
 			assert(*reinterpret_cast<intptr_t *>(&b->mutex.get()) ==
 			       0);
+
 			b->tmp_node = rehashed_flag;
 			b->node_list = empty_bucket;
 		}
+
 		// Flush in separate loop to avoid read-after-flush
 		for (size_type i = 0; i < segment.size(); ++i) {
 			bucket *b = &(segment[i]);
 			pop.flush(b, sizeof(bucket));
 		}
+
 		pop.drain();
 	}
 
@@ -613,6 +632,7 @@ public:
 		assert(b->tmp_node != rehash_req);
 		assert(is_valid(b->tmp_node));
 		assert(b->tmp_node->next == b->node_list);
+
 		b->node_list = b->tmp_node; // bucket is locked
 		pop.persist(&(b->node_list), sizeof(b->node_list));
 	}
@@ -624,40 +644,44 @@ public:
 	enable_segment(segment_index_t k, bool is_initial = false)
 	{
 		assert(k);
+
 		pool_base pop = get_pool_base();
 		size_type sz;
+
 		if (k >= first_block) {
 			segment_facade_t new_segment(my_table, k);
+
 			sz = new_segment.size();
-			if (!new_segment.is_valid()) {
+			if (!new_segment.is_valid())
 				new_segment.enable(pop);
-			}
 
 			init_buckets(pop, new_segment, is_initial);
-			sz <<= 1; // double it to get entire capacity of the
-				  // container
-		} else {	  // the first block
+
+			// double it to get entire capacity of the container
+			sz <<= 1;
+		} else {
+			// the first block
 			// TODO: refactor this code to encapsulate logic in
 			// segment_facade_t class
 			static_assert(first_block <
 					      segment_facade_t::first_big_block,
 				      "first_block should be less than "
 				      "first_big_block");
+
 			assert(k == embedded_block);
+
 			sz = segment_size(first_block);
-			if (!is_valid(
-				    my_table[embedded_block])) { // Otherwise,
-								 // it was
-								 // allocated on
-								 // previous run
-								 // but wasn't
-								 // enabled
+			if (!is_valid(my_table[embedded_block])) {
+				// Otherwise, it was allocated on previous run
+				// but wasn't enabled
 				make_persistent_atomic<bucket[]>(
 					pop, my_table[embedded_block],
 					sz - embedded_buckets);
 			}
+
 			init_buckets(my_table[embedded_block],
 				     sz - embedded_buckets, is_initial);
+
 			// TODO: fix this hack with tmp
 			bucket_ptr_t tmp = my_table[embedded_block].raw();
 			for (segment_index_t i = embedded_block + 1;
@@ -666,10 +690,12 @@ public:
 					static_cast<std::ptrdiff_t>(
 						segment_base(i) -
 						segment_base(embedded_block));
+
 				my_table[i] = (tmp + off).raw();
 				pop.persist(my_table[i]);
 			}
 		}
+
 		as_atomic(my_mask.get_rw()) = sz - 1;
 		pop.persist(my_mask);
 	}
@@ -682,9 +708,13 @@ public:
 	get_bucket(hashcode_t h) const
 	{
 		segment_index_t s = segment_index_of(h);
+
 		h -= segment_base(s);
+
 		const_segment_facade_t segment(my_table, s);
+
 		assert(segment.is_valid());
+
 		return &(segment[h]);
 	}
 
@@ -695,13 +725,17 @@ public:
 	mark_rehashed_levels(hashcode_t h)
 	{
 		segment_index_t s = segment_index_of(h);
+
 		segment_facade_t segment(my_table, s);
-		while ((++segment).is_valid())
+
+		while ((++segment).is_valid()) {
 			if (segment[h].tmp_node == rehash_req) {
 				segment[h].tmp_node = rehashed;
+
 				// optimized segment_base(s)
 				mark_rehashed_levels(h + ((hashcode_t)1 << s));
 			}
+		}
 	}
 
 	/**
@@ -711,9 +745,12 @@ public:
 	check_mask_race(hashcode_t h, hashcode_t &m) const
 	{
 		hashcode_t m_now, m_old = m;
+
 		m_now = (hashcode_t)as_atomic(my_mask.get_ro());
+
 		if (m_old != m_now)
 			return check_rehashing_collision(h, m_old, m = m_now);
+
 		return false;
 	}
 
@@ -723,6 +760,7 @@ public:
 				  hashcode_t m) const
 	{
 		assert(m_old != m);
+
 		// TODO?: m arg could be optimized out by
 		// passing h = h&m
 		if ((h & m_old) != (h & m)) {
@@ -735,8 +773,11 @@ public:
 			// size
 			for (++m_old; !(h & m_old); m_old <<= 1)
 				;
+
 			m_old = (m_old << 1) - 1; // get full mask from a bit
+
 			assert((m_old & (m_old + 1)) == 0 && m_old <= m);
+
 			// check whether it is rehashing/ed
 			// Workaround: just comparing off part.
 			// Need to investigate how to properly load with acquire
@@ -748,6 +789,7 @@ public:
 				return true;
 			}
 		}
+
 		return false;
 	}
 
@@ -758,9 +800,11 @@ public:
 	correct_bucket(bucket *b)
 	{
 		pool_base pop = get_pool_base();
+
 		if (b->tmp_node != nullptr) {
 			if (b->tmp_node->next == b->node_list)
 				insert_new_node(pop, b);
+
 			b->tmp_node = nullptr;
 			pop.persist(b->tmp_node);
 		}
@@ -774,13 +818,15 @@ public:
 	insert_new_node(pool_base &pop, bucket *b)
 	{
 		add_to_bucket(b, pop);
-		size_t sz = ++as_atomic(
-			my_size.get_rw()); // prefix form is to enforce
-					   // allocation after the first item
-					   // inserted
+
+		// prefix form is to enforce allocation after the first item
+		// inserted
+		size_t sz = ++as_atomic(my_size.get_rw());
 		pop.persist(&my_size, sizeof(my_size));
+
 		b->tmp_node = nullptr;
 		pop.persist(b->tmp_node);
+
 		return sz;
 	}
 
@@ -795,21 +841,25 @@ public:
 			segment_index_t new_seg = static_cast<segment_index_t>(
 				__TBB_Log2(mask +
 					   1)); // optimized segment_index_of
+
 			assert(segment_facade_t(my_table, new_seg - 1)
 				       .is_valid());
 
 			std::unique_lock<segment_enable_mutex_t> lock(
 				my_segment_enable_mutex, std::try_to_lock);
+
 			if (lock) {
 				if (tbb::load<tbb::acquire>(as_atomic(
 					    my_mask.get_ro())) == mask) {
 					// Otherwise, other thread enable
 					// this segment
 					enable_segment(new_seg);
+
 					return true;
 				}
 			}
 		}
+
 		return false;
 	}
 
@@ -821,8 +871,11 @@ public:
 	{
 		if (buckets == 0)
 			return;
+
 		--buckets;
+
 		bool is_initial = !my_size;
+
 		for (size_type m = my_mask; buckets > m; m = my_mask)
 			enable_segment(segment_index_of(m + 1), is_initial);
 	}
@@ -837,12 +890,15 @@ public:
 		pool_base p = get_pool_base();
 		try {
 			transaction::manual tx(p);
+
 			this->my_pool_uuid.swap(table.my_pool_uuid);
 			this->my_mask.swap(table.my_mask);
 			this->my_size.swap(table.my_size);
+
 			for (size_type i = 0; i < embedded_buckets; ++i)
 				this->my_embedded_segment[i].node_list.swap(
 					table.my_embedded_segment[i].node_list);
+
 			for (size_type i = embedded_block;
 			     i < pointers_per_table; ++i)
 				this->my_table[i].swap(table.my_table[i]);
@@ -862,6 +918,7 @@ public:
 	{
 		PMEMobjpool *pop =
 			pmemobj_pool_by_oid(PMEMoid{my_pool_uuid, 0});
+
 		return pool_base(pop);
 	}
 };
@@ -898,27 +955,35 @@ class persistent_hash_map_iterator
 	advance_to_next_bucket()
 	{ // TODO?: refactor to iterator_base class
 		size_t k = my_index + 1;
+
 		assert(my_bucket);
+
 		while (k <= my_map->my_mask) {
 			// Following test uses 2's-complement wizardry
 			if (k & (k - 2)) // not the beginning of a segment
 				++my_bucket;
 			else
 				my_bucket = my_map->get_bucket(k);
+
 			if (persistent_hash_map_base::is_valid(
 				    my_bucket->node_list)) {
 				my_node = static_cast<node *>(
 					my_bucket->node_list.get(
 						my_map->my_pool_uuid));
+
 				my_index = k;
+
 				return;
 			}
+
 			++k;
 		}
+
 		my_bucket = 0;
 		my_node = 0;
 		my_index = k;
 	}
+
 #if !defined(_MSC_VER) || defined(__INTEL_COMPILER)
 	template <typename Key, typename T, typename HashCompare>
 	friend class interface1::persistent_concurrent_hash_map;
@@ -946,6 +1011,7 @@ public:
 	    : my_map(), my_index(), my_bucket(), my_node()
 	{
 	}
+
 	/** Copy constructor. */
 	persistent_hash_map_iterator(
 		const persistent_hash_map_iterator<
@@ -956,6 +1022,7 @@ public:
 	      my_node(other.my_node)
 	{
 	}
+
 	/** Indirection (dereference). */
 	Value &operator*() const
 	{
@@ -1000,8 +1067,10 @@ persistent_hash_map_iterator<Container, Value>::operator++()
 {
 	my_node =
 		static_cast<node *>(my_node->next.get((my_map->my_pool_uuid)));
+
 	if (!my_node)
 		advance_to_next_bucket();
+
 	return *this;
 }
 
@@ -1065,9 +1134,12 @@ public:
 	    : my_end(r.my_end), my_grainsize(r.my_grainsize)
 	{
 		r.my_end = my_begin = r.my_midpoint;
+
 		assert(!empty());
 		assert(!r.empty());
+
 		set_midpoint();
+
 		r.set_midpoint();
 	}
 
@@ -1091,6 +1163,7 @@ public:
 	      my_grainsize(grainsize_)
 	{
 		assert(grainsize_ > 0);
+
 		set_midpoint();
 	}
 
@@ -1128,14 +1201,18 @@ hash_map_range<Iterator>::set_midpoint() const
 {
 	// Split by groups of nodes
 	size_t m = my_end.my_index - my_begin.my_index;
+
 	if (m > my_grainsize) {
 		m = my_begin.my_index + m / 2u;
+
 		persistent_hash_map_base::bucket *b =
 			my_begin.my_map->get_bucket(m);
+
 		my_midpoint = Iterator(*my_begin.my_map, m, b, b->node_list);
 	} else {
 		my_midpoint = my_end;
 	}
+
 	assert(my_begin.my_index <= my_midpoint.my_index);
 	assert(my_midpoint.my_index <= my_end.my_index);
 	assert(my_begin != my_midpoint || my_begin == my_end);
@@ -1189,31 +1266,37 @@ protected:
 		    : node_base(_next), item(key, T())
 		{
 		}
+
 		node(const Key &key, const T &t,
 		     const node_base_ptr_t &_next = OID_NULL)
 		    : node_base(_next), item(key, t)
 		{
 		}
+
 		node(const Key &key, T &&t, node_base_ptr_t &&_next = OID_NULL)
 		    : node_base(std::move(_next)), item(key, std::move(t))
 		{
 		}
+
 		node(value_type &&i, node_base_ptr_t &&_next = OID_NULL)
 		    : node_base(std::move(_next)), item(std::move(i))
 		{
 		}
+
 		template <typename... Args>
 		node(Args &&... args, node_base_ptr_t &&_next = OID_NULL)
 		    : node_base(std::forward<node_base_ptr_t>(_next)),
 		      item(std::forward<Args>(args)...)
 		{
 		}
+
 #if __TBB_COPY_FROM_NON_CONST_REF_BROKEN
 		node(value_type &i, node_base_ptr_t &_next = OID_NULL)
 		    : node_base(_next), item(const_cast<const value_type &>(i))
 		{
 		}
 #endif //__TBB_COPY_FROM_NON_CONST_REF_BROKEN
+
 		node(const value_type &i,
 		     const node_base_ptr_t &_next = OID_NULL)
 		    : node_base(_next), item(i)
@@ -1281,13 +1364,17 @@ protected:
 	search_bucket(const key_type &key, bucket *b) const
 	{
 		assert(b->tmp_node != internal::rehash_req);
+
 		persistent_node_ptr_t n =
 			static_persistent_pool_pointer_cast<node>(b->node_list);
+
 		while (is_valid(n) &&
-		       !my_hash_compare.equal(key,
-					      n.get(my_pool_uuid)->item.first))
+		       !my_hash_compare.equal(
+			       key, n.get(my_pool_uuid)->item.first)) {
 			n = static_persistent_pool_pointer_cast<node>(
 				n.get(my_pool_uuid)->next);
+		}
+
 		return n;
 	}
 
@@ -1304,6 +1391,7 @@ protected:
 		{
 			acquire(base, h, writer);
 		}
+
 		/**
 		 * Find a bucket by masked hashcode, optionally rehash, and
 		 * acquire the lock
@@ -1331,8 +1419,10 @@ protected:
 				bucket::scoped_t::acquire(my_b->mutex.get(),
 							  writer);
 			}
+
 			assert(my_b->tmp_node == nullptr);
 		}
+
 		/**
 		 * Check whether bucket is locked for write
 		 */
@@ -1383,6 +1473,7 @@ protected:
 					base->correct_bucket(my_b);
 				}
 			}
+
 			assert(my_b->tmp_node == nullptr);
 		}
 
@@ -1437,9 +1528,11 @@ protected:
 		typedef typename std::conditional<
 			serial, serial_bucket_accessor, bucket_accessor>::type
 			accessor_type;
+
 		if (!serial) {
 			assert(*(intptr_t *)(&b_new->mutex.get()));
 		}
+
 		assert(h > 1);
 
 		// get parent mask from the topmost bit
@@ -1448,6 +1541,7 @@ protected:
 		accessor_type b_old(this, h & mask);
 
 		mask = (mask << 1) | 1; // get full mask for new bucket
+
 		assert((mask & (mask + 1)) == 0 && (h & mask) == h);
 
 		pool_base pop = get_pool_base();
@@ -1463,11 +1557,14 @@ protected:
 			hashcode_t c = get_hash_code(n);
 #ifndef NDEBUG
 			hashcode_t bmask = h & (mask >> 1);
+
 			bmask = bmask == 0
 				? 1 // minimal mask of parent bucket
 				: (1u << (__TBB_Log2(bmask) + 1)) - 1;
+
 			assert((c & bmask) == (h & bmask));
 #endif
+
 			if ((c & mask) == h) {
 				if (!b_old.is_writer() &&
 				    !b_old.upgrade_to_writer()) {
@@ -1475,6 +1572,7 @@ protected:
 					// node ptr can be invalid due to
 					// concurrent erase
 				}
+
 				if (restore_after_crash) {
 					while (*p_new != nullptr &&
 					       (mask & get_hash_code(*p_new)) ==
@@ -1483,26 +1581,34 @@ protected:
 						p_new = &((*p_new)(my_pool_uuid)
 								  ->next);
 					}
+
 					restore_after_crash = false;
 				}
+
 				// Add to new b_new
 				*p_new = n;
 				pop.persist(p_new, sizeof(*p_new));
+
 				// exclude from b_old
 				*p_old = n(my_pool_uuid)->next;
 				pop.persist(p_old, sizeof(*p_old));
+
 				p_new = &(n(my_pool_uuid)->next);
-			} else
+			} else {
 				// iterate to next item
 				p_old = &(n(my_pool_uuid)->next);
+			}
 		}
 
-		if (restore_after_crash)
+		if (restore_after_crash) {
 			while (*p_new != nullptr &&
 			       (mask & get_hash_code(*p_new)) == h)
 				p_new = &((*p_new)(my_pool_uuid)->next);
+		}
+
 		*p_new = nullptr;
 		pop.persist(p_new, sizeof(*p_new));
+
 		// TODO: now we update only offset field, because pool_uuid is
 		// the same. Need to assign whole pointer, but there is
 		// compilation issue
@@ -1520,16 +1626,17 @@ protected:
 		    : my_ch_map(a_ch_map)
 		{
 		}
+
 		void
 		dismiss()
 		{
 			my_ch_map = 0;
 		}
+
 		~call_clear_on_leave()
 		{
-			if (my_ch_map) {
+			if (my_ch_map)
 				my_ch_map->clear();
-			}
 		}
 	};
 
@@ -1569,6 +1676,7 @@ public:
 		const_reference operator*() const
 		{
 			assert(my_node);
+
 			return my_node->item;
 		}
 
@@ -1596,7 +1704,9 @@ public:
 		{
 			return node::scoped_t::is_writer;
 		}
+
 		node_ptr_t my_node;
+
 		hashcode_t my_hash;
 	};
 
@@ -1612,6 +1722,7 @@ public:
 		reference operator*() const
 		{
 			assert(this->my_node);
+
 			return this->my_node->item;
 		}
 
@@ -1641,6 +1752,7 @@ public:
 	    : internal::persistent_hash_map_base()
 	{
 		assert(false);
+
 		internal_copy(table);
 	}
 
@@ -1656,6 +1768,7 @@ public:
 	persistent_concurrent_hash_map(I first, I last)
 	{
 		reserve(std::distance(first, last)); // TODO: load_factor?
+
 		internal_copy(first, last);
 	}
 
@@ -1663,6 +1776,7 @@ public:
 	persistent_concurrent_hash_map(std::initializer_list<value_type> il)
 	{
 		reserve(il.size());
+
 		internal_copy(il.begin(), il.end());
 	}
 
@@ -1677,6 +1791,7 @@ public:
 			clear();
 			internal_copy(table);
 		}
+
 		return *this;
 	}
 
@@ -1688,8 +1803,11 @@ public:
 	operator=(std::initializer_list<value_type> il)
 	{
 		clear();
+
 		reserve(il.size());
+
 		internal_copy(il.begin(), il.end());
+
 		return *this;
 	}
 
@@ -1720,6 +1838,7 @@ public:
 	{
 		return range_type(*this, grainsize);
 	}
+
 	const_range_type
 	range(size_type grainsize = 1) const
 	{
@@ -1736,11 +1855,13 @@ public:
 			*this, 0, my_embedded_segment,
 			my_embedded_segment->node_list.get(my_pool_uuid));
 	}
+
 	iterator
 	end()
 	{
 		return iterator(*this, 0, 0, 0);
 	}
+
 	const_iterator
 	begin() const
 	{
@@ -1748,16 +1869,19 @@ public:
 			*this, 0, my_embedded_segment,
 			my_embedded_segment->node_list.get(my_pool_uuid));
 	}
+
 	const_iterator
 	end() const
 	{
 		return const_iterator(*this, 0, 0, 0);
 	}
+
 	std::pair<iterator, iterator>
 	equal_range(const Key &key)
 	{
 		return internal_equal_range(key, end());
 	}
+
 	std::pair<const_iterator, const_iterator>
 	equal_range(const Key &key) const
 	{
@@ -1816,6 +1940,7 @@ public:
 	find(const_accessor &result, const Key &key) const
 	{
 		result.release();
+
 		return const_cast<persistent_concurrent_hash_map *>(this)
 			->lookup(/*insert*/ false, key, nullptr, &result,
 				 /*write=*/false, &do_not_allocate_node);
@@ -1829,6 +1954,7 @@ public:
 	find(accessor &result, const Key &key)
 	{
 		result.release();
+
 		return lookup(/*insert*/ false, key, nullptr, &result,
 			      /*write*/ true, &do_not_allocate_node);
 	}
@@ -1843,6 +1969,7 @@ public:
 	insert(const_accessor &result, const Key &key)
 	{
 		result.release();
+
 		return lookup(/*insert*/ true, key, nullptr, &result,
 			      /*write=*/false,
 			      &allocate_node_default_construct);
@@ -1858,6 +1985,7 @@ public:
 	insert(accessor &result, const Key &key)
 	{
 		result.release();
+
 		return lookup(/*insert*/ true, key, nullptr, &result,
 			      /*write=*/true, &allocate_node_default_construct);
 	}
@@ -1872,6 +2000,7 @@ public:
 	insert(const_accessor &result, const value_type &value)
 	{
 		result.release();
+
 		return lookup(/*insert*/ true, value.first, &value.second,
 			      &result, /*write=*/false,
 			      &allocate_node_copy_construct);
@@ -1884,6 +2013,7 @@ public:
 	insert(accessor &result, const value_type &value)
 	{
 		result.release();
+
 		return lookup(/*insert*/ true, value.first, &value.second,
 			      &result, /*write=*/true,
 			      &allocate_node_copy_construct);
@@ -2038,11 +2168,13 @@ protected:
 		{
 		}
 	};
+
 	friend const_accessor *
 	accessor_location(accessor_not_used const &)
 	{
 		return nullptr;
 	}
+
 	friend const_accessor *
 	accessor_location(const_accessor &a)
 	{
@@ -2054,11 +2186,13 @@ protected:
 	{
 		return true;
 	}
+
 	friend bool
 	is_write_access_needed(const_accessor const &)
 	{
 		return false;
 	}
+
 	friend bool
 	is_write_access_needed(accessor_not_used const &)
 	{
@@ -2111,19 +2245,25 @@ persistent_concurrent_hash_map<Key, T, HashCompare>::lookup(
 			      const T *, const node_base_ptr_t &))
 {
 	assert(!result || !result->my_node);
+
 	bool return_value = false;
 	hashcode_t const h = my_hash_compare.hash(key);
 	hashcode_t m = (hashcode_t)tbb::load<tbb::acquire>(
 		tbb::internal::as_atomic(my_mask.get_ro()));
 	persistent_node_ptr_t n;
 	size_type sz = 0;
+
 restart : { // lock scope
 	assert((m & (m + 1)) == 0);
+
 	return_value = false;
+
 	// get bucket
 	bucket_accessor b(this, h & m);
+
 	// find a node
 	n = search_bucket(key, b());
+
 	if (op_insert) {
 		// [opt] insert a key
 		if (!n) {
@@ -2138,6 +2278,7 @@ restart : { // lock scope
 					goto exists;
 				}
 			}
+
 			if (check_mask_race(h, m))
 				goto restart; // b.release() is done in ~b().
 
@@ -2145,10 +2286,12 @@ restart : { // lock scope
 
 			// insert and set flag to grow the container
 			pool_base pop = get_pool_base();
+
 			allocate_node(pop,
 				      reinterpret_cast<persistent_ptr<node> &>(
 					      b()->tmp_node),
 				      key, t, b()->node_list);
+
 			n = b()->tmp_node;
 			sz = insert_new_node(pop, b());
 			return_value = true;
@@ -2160,11 +2303,13 @@ restart : { // lock scope
 					      // TODO: replace by continue
 			return false;
 		}
+
 		return_value = true;
 	}
 exists:
 	if (!result)
 		goto check_growth;
+
 	// TODO: the following seems as generic/regular operation
 	// acquire the item
 	if (!result->try_acquire(n.get(my_pool_uuid)->mutex.get(), write)) {
@@ -2172,20 +2317,26 @@ exists:
 			if (result->try_acquire(
 				    n.get(my_pool_uuid)->mutex.get(), write))
 				break;
+
 			if (!backoff.bounded_pause()) {
 				// the wait takes really long, restart the
 				// operation
 				b.release();
+
 				assert(!op_insert || !return_value);
+
 				__TBB_Yield();
+
 				m = (hashcode_t)tbb::load<tbb::acquire>(
 					tbb::internal::as_atomic(
 						my_mask.get_ro()));
+
 				goto restart;
 			}
 		}
 	}
 } // lock scope
+
 	result->my_node = n.get_persistent_ptr(my_pool_uuid);
 	result->my_hash = h;
 check_growth:
@@ -2201,6 +2352,7 @@ persistent_concurrent_hash_map<Key, T, HashCompare>::exclude(
 	const_accessor &item_accessor)
 {
 	assert(item_accessor.my_node);
+
 	node_base_ptr_t const n = item_accessor.my_node;
 	hashcode_t const h = item_accessor.my_hash;
 	hashcode_t m = (hashcode_t)tbb::load<tbb::acquire>(
@@ -2211,34 +2363,49 @@ persistent_concurrent_hash_map<Key, T, HashCompare>::exclude(
 		// get bucket
 		bucket_accessor b(this, h & m, /*writer=*/true);
 		node_base_ptr_t *p = &b()->node_list;
+
 		while (*p && *p != n)
 			p = &(*p)(my_pool_uuid)->next;
+
 		if (!*p) { // someone else was first
 			if (check_mask_race(h, m))
 				continue;
+
 			item_accessor.release();
+
 			return false;
 		}
+
 		assert(*p == n);
+
 		b()->tmp_node = n(my_pool_uuid);
 		pop.persist(b()->tmp_node);
+
 		*p = b()->tmp_node->next; // remove from container
 		pop.persist(p, sizeof(node_base_ptr_t));
+
 		--(internal::as_atomic(my_size.get_rw()));
 		pop.persist(my_size);
+
 		if (!item_accessor.is_writer()) // need to get exclusive lock
 			item_accessor.upgrade_to_writer();
+
 		item_accessor.release();
+
 		try {
 			transaction::manual tx(pop);
+
 			// Only one thread can delete it due
 			// to write lock on the bucket
 			delete_node(b()->tmp_node);
+
 			b()->tmp_node = nullptr;
+
 			transaction::commit();
 		} catch (const pmem::transaction_free_error &e) {
 			throw std::runtime_error(e);
 		}
+
 		break;
 	} while (true);
 
@@ -2254,13 +2421,16 @@ persistent_concurrent_hash_map<Key, T, HashCompare>::erase(const Key &key)
 	hashcode_t m = (hashcode_t)tbb::load<tbb::acquire>(
 		tbb::internal::as_atomic(my_mask.get_ro()));
 	pool_base pop = get_pool_base();
+
 restart : {
 	// lock scope
 	// get bucket
 	bucket_accessor b(this, h & m);
+
 search:
 	node_base_ptr_t *p = &b()->node_list;
 	n = *p;
+
 	while (is_valid(n) &&
 	       !my_hash_compare.equal(key,
 				      static_persistent_pool_pointer_cast<node>(
@@ -2269,32 +2439,43 @@ search:
 		p = &n(my_pool_uuid)->next;
 		n = *p;
 	}
+
 	if (!n) {
 		// not found, but mask could be changed
 		if (check_mask_race(h, m))
 			goto restart;
+
 		return false;
 	} else if (!b.is_writer() && !b.upgrade_to_writer()) {
 		if (check_mask_race(h, m)) // contended upgrade, check mask
 			goto restart;
+
 		goto search;
 	}
+
 	b()->tmp_node = n(my_pool_uuid);
 	pop.persist(b()->tmp_node);
+
 	*p = b()->tmp_node->next;
 	pop.persist(p, sizeof(node_base_ptr_t));
+
 	--(internal::as_atomic(my_size.get_rw()));
 	pop.persist(my_size);
+
 	{
 		typename node::scoped_t item_locker(b()->tmp_node->mutex.get(),
 						    /*write=*/true);
 	}
+
 	try {
 		transaction::manual tx(pop);
+
 		// Only one thread can delete it due to
 		// write lock on the bucket
 		delete_node(b()->tmp_node);
+
 		b()->tmp_node = nullptr;
+
 		transaction::commit();
 	} catch (const pmem::transaction_free_error &e) {
 		throw std::runtime_error(e);
@@ -2322,20 +2503,24 @@ persistent_concurrent_hash_map<Key, T, HashCompare>::rehash(size_type sz)
 	reserve(sz); // TODO: add reduction of number of buckets as well
 
 	hashcode_t mask = my_mask;
+
 	// only the last segment should be scanned for rehashing
 	// size or first index of the last segment
 	hashcode_t b = (mask + 1) >> 1;
+
 	assert((b & (b - 1)) == 0); // zero or power of 2
 
 	for (; b <= mask; ++b) {
 		bucket *bp = get_bucket(b);
 		node_base_ptr_t n = bp->node_list;
+
 		assert(is_valid(n) || n == internal::empty_bucket ||
 		       bp->tmp_node == internal::rehash_req);
+
 		assert(*reinterpret_cast<intptr_t *>(&bp->mutex.get()) == 0);
+
 		if (bp->tmp_node == internal::rehash_req) {
 			rehash_bucket<true>(bp, b);
-		}
 	}
 }
 
@@ -2344,17 +2529,22 @@ void
 persistent_concurrent_hash_map<Key, T, HashCompare>::clear()
 {
 	hashcode_t m = my_mask;
+
 	assert((m & (m + 1)) == 0);
+
 #ifndef NDEBUG
 	// check consistency
 	for (segment_index_t b = 0; b <= m; ++b) {
 		bucket *bp = get_bucket(b);
 		node_base_ptr_t n = bp->node_list;
+
 		assert(is_valid(n) || n == internal::empty_bucket ||
 		       bp->tmp_node == internal::rehash_req);
+
 		assert(*reinterpret_cast<intptr_t *>(&bp->mutex.get()) == 0);
 	}
 #endif
+
 	pool_base pop = get_pool_base();
 	try { // transaction scope
 
@@ -2362,12 +2552,16 @@ persistent_concurrent_hash_map<Key, T, HashCompare>::clear()
 
 		my_size = 0;
 		segment_index_t s = segment_index_of(m);
+
 		assert(s + 1 == pointers_per_table ||
 		       !segment_facade_t(my_table, s + 1).is_valid());
+
 		do {
 			clear_segment(s);
 		} while (s-- > 0);
+
 		my_mask = embedded_buckets - 1;
+
 		transaction::commit();
 	} catch (const pmem::transaction_error &e) {
 		throw std::runtime_error(e);
@@ -2380,7 +2574,9 @@ persistent_concurrent_hash_map<Key, T, HashCompare>::clear_segment(
 	segment_index_t s)
 {
 	segment_facade_t segment(my_table, s);
+
 	assert(segment.is_valid());
+
 	size_type sz = segment.size();
 	for (segment_index_t i = 0; i < sz; ++i) {
 		for (node_base_ptr_t n = segment[i].node_list; is_valid(n);
@@ -2389,11 +2585,13 @@ persistent_concurrent_hash_map<Key, T, HashCompare>::clear_segment(
 			delete_node(n);
 		}
 	}
+
 	if (s >= first_block) // the first segment or the next
 		segment.disable();
 	else if (s == embedded_block && embedded_block != first_block) {
 		size_t size = segment_size(first_block) - embedded_buckets;
 		delete_persistent<bucket[]>(my_table[s], size);
+
 		if (s >= embedded_block)
 			my_table[s] = nullptr;
 	}
@@ -2416,14 +2614,18 @@ persistent_concurrent_hash_map<Key, T, HashCompare>::internal_copy(I first,
 {
 	hashcode_t m = my_mask;
 	pool_base pop = get_pool_base();
+
 	for (; first != last; ++first) {
 		hashcode_t h = my_hash_compare.hash((*first).first);
 		bucket *b = get_bucket(h & m);
+
 		assert(b->tmp_node != internal::rehash_req);
+
 		allocate_node_copy_construct(
 			pop,
 			reinterpret_cast<persistent_ptr<node> &>(b->tmp_node),
 			(*first).first, (*first).second, b->tmp_node);
+
 		insert_new_node(pop, b);
 	}
 }
@@ -2439,17 +2641,22 @@ operator==(const persistent_concurrent_hash_map<Key, T, HashCompare> &a,
 {
 	if (a.size() != b.size())
 		return false;
+
 	typename persistent_concurrent_hash_map<
 		Key, T, HashCompare>::const_iterator i(a.begin()),
 		i_end(a.end());
+
 	typename persistent_concurrent_hash_map<Key, T,
 						HashCompare>::const_iterator j,
 		j_end(b.end());
+
 	for (; i != i_end; ++i) {
 		j = b.equal_range(i->first).first;
+
 		if (j == j_end || !(i->second == j->second))
 			return false;
 	}
+
 	return true;
 }
 
