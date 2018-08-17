@@ -645,7 +645,7 @@ public:
 	{
 		assert(k);
 
-		pool_base pop = get_pool_base();
+    pool_base pop = get_pool_base();
 		size_type sz;
 
 		if (k >= first_block) {
@@ -674,6 +674,7 @@ public:
 			if (!is_valid(my_table[embedded_block])) {
 				// Otherwise, it was allocated on previous run
 				// but wasn't enabled
+
 				make_persistent_atomic<bucket[]>(
 					pop, my_table[embedded_block],
 					sz - embedded_buckets);
