@@ -322,3 +322,11 @@ else()
 	build_test_tbb(concurrent_hash_map_tbb concurrent_hash_map/concurrent_hash_map_tbb.cpp)
 	add_test_generic(NAME concurrent_hash_map_tbb TRACERS none pmemcheck)
 endif()
+
+if(PMREORDER_SUPPORTED)
+		build_test_tbb(concurrent_hash_map_pmreorder_simple concurrent_hash_map_pmreorder_simple/concurrent_hash_map_pmreorder_simple.cpp)
+		add_test_generic(NAME concurrent_hash_map_pmreorder_simple CASE 0 TRACERS none)
+else()
+		message(WARNING "Skipping pmreorder tests because of no pmreorder support")
+endif()
+
