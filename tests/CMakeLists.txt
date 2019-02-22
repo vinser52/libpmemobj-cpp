@@ -312,6 +312,9 @@ add_test_generic(NAME vector_std_arg TRACERS none memcheck pmemcheck)
 build_test(concurrent_hash_map concurrent_hash_map/concurrent_hash_map.cpp)
 add_test_generic(NAME concurrent_hash_map TRACERS none memcheck pmemcheck drd helgrind)
 
+build_test(concurrent_hash_map_rehash concurrent_hash_map_rehash/concurrent_hash_map_rehash.cpp)
+add_test_generic(NAME concurrent_hash_map_rehash TRACERS none memcheck pmemcheck helgrind)
+
 add_subdirectory(external)
 
 if(NOT USE_TBB)

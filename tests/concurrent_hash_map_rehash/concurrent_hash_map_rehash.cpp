@@ -62,137 +62,6 @@ struct root {
 	nvobj::persistent_ptr<persistent_map_type> cons;
 };
 
-template <typename Function>
-void
-parallel_exec(size_t concurrency, Function f)
-{
-	std::vector<std::thread> threads;
-	threads.reserve(concurrency);
-
-	for (size_t i = 0; i < concurrency; ++i) {
-		threads.emplace_back(f, i);
-	}
-
-	for (auto &t : threads) {
-		t.join();
-	}
-}
-
-/*
- * insert_and_lookup_test -- (internal) test insert and lookup operations
- * pmem::obj::concurrent_hash_map<nvobj::p<int>, nvobj::p<int> >
- */
-void
-insert_and_lookup_test(nvobj::pool<root> &pop)
-{
-	const size_t NUMBER_ITEMS_INSERT = 50;
-
-	// Adding more concurrency will increase DRD test time
-	const size_t concurrency = 8;
-
-	size_t TOTAL_ITEMS = NUMBER_ITEMS_INSERT * concurrency;
-
-	auto map = pop.root()->cons;
-
-	UT_ASSERT(map != nullptr);
-
-	map->initialize();
-
-	parallel_exec(concurrency, [&](size_t thread_id) {
-		int begin = thread_id * NUMBER_ITEMS_INSERT;
-		int end = begin + int(NUMBER_ITEMS_INSERT);
-		for (int i = begin; i < end; ++i) {
-			bool ret = map->insert(
-				persistent_map_type::value_type(i, i));
-			UT_ASSERT(ret == true);
-
-			UT_ASSERT(map->count(i) == 1);
-
-			persistent_map_type::accessor acc;
-			bool res = map->find(acc, i);
-			UT_ASSERT(res == true);
-			UT_ASSERT(acc->first == i);
-			UT_ASSERT(acc->second == i);
-			acc->second.get_rw() += 1;
-			pop.persist(acc->second);
-		}
-
-		for (int i = begin; i < end; ++i) {
-			persistent_map_type::const_accessor const_acc;
-			bool res = map->find(const_acc, i);
-			UT_ASSERT(res == true);
-			UT_ASSERT(const_acc->first == i);
-			UT_ASSERT(const_acc->second == i + 1);
-		}
-	});
-
-	UT_ASSERT(map->size() == TOTAL_ITEMS);
-
-	UT_ASSERT(std::distance(map->begin(), map->end()) == int(TOTAL_ITEMS));
-
-	map->rehash(TOTAL_ITEMS * 8);
-
-	UT_ASSERT(map->size() == TOTAL_ITEMS);
-
-	UT_ASSERT(std::distance(map->begin(), map->end()) == int(TOTAL_ITEMS));
-
-	size_t buckets = map->bucket_count();
-
-	map->initialize(true);
-
-	UT_ASSERT(map->bucket_count() == buckets);
-
-	UT_ASSERT(map->size() == TOTAL_ITEMS);
-
-	map->initialize();
-
-	UT_ASSERT(map->bucket_count() == buckets);
-
-	UT_ASSERT(map->size() == TOTAL_ITEMS);
-
-	map->clear();
-
-	UT_ASSERT(map->size() == 0);
-
-	UT_ASSERT(std::distance(map->begin(), map->end()) == 0);
-}
-
-/*
- * insert_and_erase_test -- (internal) test insert and erase operations
- * pmem::obj::concurrent_hash_map<nvobj::p<int>, nvobj::p<int> >
- */
-void
-insert_and_erase_test(nvobj::pool<root> &pop)
-{
-	const size_t NUMBER_ITEMS_INSERT = 50;
-
-	// Adding more concurrency will increase DRD test time
-	const size_t concurrency = 8;
-
-	auto map = pop.root()->cons;
-
-	UT_ASSERT(map != nullptr);
-
-	map->initialize();
-
-	parallel_exec(concurrency, [&](size_t thread_id) {
-		int begin = thread_id * NUMBER_ITEMS_INSERT;
-		int end = begin + int(NUMBER_ITEMS_INSERT) / 2;
-		for (int i = begin; i < end; ++i) {
-			bool res = map->insert(
-				persistent_map_type::value_type(i, i));
-			UT_ASSERT(res == true);
-
-			res = map->erase(i);
-			UT_ASSERT(res == true);
-
-			UT_ASSERT(map->count(i) == 0);
-		}
-	});
-
-	UT_ASSERT(map->size() == 0);
-}
-
 /*
  * insert_and_erase_test -- (internal) test insert and erase operations
  * pmem::obj::concurrent_hash_map<nvobj::p<int>, nvobj::p<int> >
@@ -200,10 +69,10 @@ insert_and_erase_test(nvobj::pool<root> &pop)
 void
 insert_erase_lookup_test(nvobj::pool<root> &pop)
 {
-	const size_t NUMBER_ITEMS_INSERT = 50;
+	const size_t NUMBER_ITEMS_INSERT = 500;
 
 	// Adding more concurrency will increase DRD test time
-	const size_t concurrency = 4;
+	const size_t concurrency = 6;
 
 	auto map = pop.root()->cons;
 
@@ -281,10 +150,6 @@ main(int argc, char *argv[])
 	} catch (pmem::pool_error &pe) {
 		UT_FATAL("!pool::create: %s %s", pe.what(), path);
 	}
-
-	insert_and_lookup_test(pop);
-
-	insert_and_erase_test(pop);
 
 	insert_erase_lookup_test(pop);
 
