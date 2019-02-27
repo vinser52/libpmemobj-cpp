@@ -45,6 +45,8 @@
 #include <future>
 #include <iostream>
 
+#define LIBPMEMOBJ_CPP_USE_ATOMIC_ALLOCATOR 1
+
 #include <libpmemobj++/experimental/concurrent_hash_map.hpp>
 
 #define LAYOUT "persistent_concurrent_hash_map"
