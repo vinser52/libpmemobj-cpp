@@ -324,6 +324,9 @@ if(PMEMVLT_PRESENT)
 	build_test(concurrent_hash_map_rehash concurrent_hash_map_rehash/concurrent_hash_map_rehash.cpp)
 	add_test_generic(NAME concurrent_hash_map_rehash TRACERS none memcheck pmemcheck helgrind)
 
+	build_test(concurrent_hash_map_rehash_check concurrent_hash_map_rehash_check/concurrent_hash_map_rehash_check.cpp)
+	add_test_generic(NAME concurrent_hash_map_rehash_check TRACERS none memcheck pmemcheck)
+
 	if(NOT USE_TBB)
 		message(WARNING "Skipping concurrent_hash_map_tbb test because it was not enabled.")
 	elseif(NOT TBB_FOUND)
