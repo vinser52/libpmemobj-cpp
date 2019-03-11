@@ -1,5 +1,5 @@
 /*
- * Copyright 2018, Intel Corporation
+ * Copyright 2018-2019, Intel Corporation
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -65,6 +65,8 @@ struct root {
 	nvobj::persistent_ptr<persistent_map_type> cons;
 };
 
+static constexpr int elements[] = {1, 2, 257, 513};
+
 /*
  * test_map -- (internal) test
  * pmem::obj::concurrent_hash_map<nvobj::p<int>, nvobj::p<int> >
@@ -74,7 +76,14 @@ test_insert(nvobj::pool<root> &pop)
 {
 	auto persistent_map = pop.root()->cons;
 
-	persistent_map->insert(value_type(573, 573));
+	persistent_map->insert(value_type(elements[1], elements[1]));
+	persistent_map->insert(value_type(elements[2], elements[2]));
+	persistent_map->insert(value_type(elements[3], elements[3]));
+
+	{
+		typename persistent_map_type::accessor accessor;
+		UT_ASSERTeq(persistent_map->find(accessor, elements[2]), true);
+	}
 }
 
 void
@@ -84,26 +93,27 @@ check_consistency(nvobj::pool<root> &pop)
 
 	persistent_map->initialize();
 
-	if (persistent_map->size() == 2) {
-		UT_ASSERTeq(persistent_map->count(1), 1);
-		UT_ASSERTeq(persistent_map->count(573), 1);
-		UT_ASSERTeq(std::distance(persistent_map->begin(),
-					  persistent_map->end()),
-			    2);
-	} else if (persistent_map->size(), 1) {
-		UT_ASSERTeq(std::distance(persistent_map->begin(),
-					  persistent_map->end()),
-			    1);
-		UT_ASSERTeq(persistent_map->count(1), 1);
-		UT_ASSERTeq(persistent_map->count(573), 0);
+	auto size = static_cast<typename persistent_map_type::difference_type>(
+		persistent_map->size());
 
-		persistent_map->insert(value_type(61, 61));
-		UT_ASSERTeq(persistent_map->count(1), 1);
-		UT_ASSERTeq(persistent_map->count(573), 0);
-		UT_ASSERTeq(persistent_map->count(61), 1);
-		UT_ASSERTeq(persistent_map->size(), 2);
-	} else {
-		UT_ASSERT(0);
+	UT_ASSERTeq(
+		std::distance(persistent_map->begin(), persistent_map->end()),
+		size);
+
+	for (int i = 0; i < size; i++) {
+		UT_ASSERTeq(persistent_map->count(elements[i]), 1);
+
+		typename persistent_map_type::accessor accessor;
+		UT_ASSERTeq(persistent_map->find(accessor, elements[i]), true);
+
+		UT_ASSERTeq(accessor->first, elements[i]);
+		UT_ASSERTeq(accessor->second, elements[i]);
+	}
+
+	for (int i = size;
+	     i < static_cast<int>(sizeof(elements) / sizeof(elements[0]));
+	     i++) {
+		UT_ASSERTeq(persistent_map->count(elements[i]), 0);
 	}
 }
 }
@@ -131,7 +141,8 @@ main(int argc, char *argv[])
 			nvobj::make_persistent_atomic<persistent_map_type>(
 				pop, pop.root()->cons);
 
-			pop.root()->cons->insert(value_type(1, 1));
+			pop.root()->cons->insert(
+				value_type(elements[0], elements[0]));
 		} else if (argv[1][0] == 'i') {
 			pop = nvobj::pool<root>::open(path, LAYOUT);
 

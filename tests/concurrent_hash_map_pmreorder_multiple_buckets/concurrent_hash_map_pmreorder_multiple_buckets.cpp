@@ -1,5 +1,5 @@
 /*
- * Copyright 2018, Intel Corporation
+ * Copyright 2018-2019, Intel Corporation
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -82,7 +82,7 @@ struct root {
 
 static constexpr int mask = 256;
 
-static constexpr int NUMBER_OF_INSERTS = mask + 2;
+static constexpr int NUMBER_OF_INSERTS = 8;
 
 /*
  * test_insert -- (internal) run several inserts to different buckets
@@ -93,17 +93,11 @@ test_insert(nvobj::pool<root> &pop)
 {
 	auto persistent_map = pop.root()->cons;
 
-	int i = 0;
-	for (; i < 2; i++)
+	for (int i = 0; i < NUMBER_OF_INSERTS / 2; i++)
 		persistent_map->insert(value_type(i, i));
 
-	VALGRIND_PMC_EMIT_LOG("no_reorder.BEGIN");
-	for (; i < mask - 1; i++)
-		persistent_map->insert(value_type(i, i));
-	VALGRIND_PMC_EMIT_LOG("no_reorder.END");
-
-	for (; i < NUMBER_OF_INSERTS; i++)
-		persistent_map->insert(value_type(i, i));
+	for (int i = 0; i < NUMBER_OF_INSERTS / 2 - 1; i++)
+		persistent_map->insert(value_type(i + mask, i + mask));
 
 	{
 		typename persistent_map_type::accessor accessor;
@@ -118,7 +112,8 @@ test_insert(nvobj::pool<root> &pop)
 		UT_ASSERTeq(persistent_map->find(accessor, 1 + mask), true);
 	}
 
-	persistent_map->insert(value_type(1000, 1000));
+	persistent_map->insert(value_type(NUMBER_OF_INSERTS / 2 - 1 + mask,
+					  NUMBER_OF_INSERTS / 2 - 1 + mask));
 }
 
 void
@@ -138,13 +133,13 @@ run_multiple_threads(int concurrency, nvobj::pool<root> &pop)
 		});
 	}
 
-	/* for (int i = 0; i < concurrency; ++i) {
-		 threads.emplace_back([&]() {
-			 for (int i = 0; i < 10 * concurrency; ++i) {
-				 map->erase(i);
-			 }
-		 });
-	 } */
+	for (int i = 0; i < concurrency; ++i) {
+		threads.emplace_back([&]() {
+			for (int i = 0; i < 10 * concurrency; ++i) {
+				map->erase(i);
+			}
+		});
+	}
 
 	for (int i = 0; i < concurrency; ++i) {
 		threads.emplace_back([&]() {
@@ -161,6 +156,7 @@ run_multiple_threads(int concurrency, nvobj::pool<root> &pop)
 			}
 		});
 	}
+
 	for (auto &t : threads) {
 		t.join();
 	}
@@ -181,20 +177,27 @@ check_consistency(nvobj::pool<root> &pop)
 		size);
 
 	for (int i = 0; i < size; i++) {
-		UT_ASSERTeq(persistent_map->count(i), 1);
+		auto element = i < NUMBER_OF_INSERTS / 2
+			? i
+			: i + mask - NUMBER_OF_INSERTS / 2;
+		std::cout << element << std::endl;
+		UT_ASSERTeq(persistent_map->count(element), 1);
 
 		typename persistent_map_type::accessor accessor;
-		UT_ASSERTeq(persistent_map->find(accessor, i), true);
+		UT_ASSERTeq(persistent_map->find(accessor, element), true);
 
-		UT_ASSERTeq(accessor->first, i);
-		UT_ASSERTeq(accessor->second, i);
+		UT_ASSERTeq(accessor->first, element);
+		UT_ASSERTeq(accessor->second, element);
 
 		if (i == NUMBER_OF_INSERTS - 1)
 			break;
 	}
 
 	for (int i = size; i < NUMBER_OF_INSERTS; i++) {
-		UT_ASSERTeq(persistent_map->count(i), 0);
+		auto element = i < NUMBER_OF_INSERTS / 2
+			? i
+			: i + mask - NUMBER_OF_INSERTS / 2;
+		UT_ASSERTeq(persistent_map->count(element), 0);
 	}
 
 	if (size == NUMBER_OF_INSERTS + 1) {
@@ -204,7 +207,7 @@ check_consistency(nvobj::pool<root> &pop)
 		UT_ASSERTeq(persistent_map->find(accessor, 1000), 1);
 	}
 
-	run_multiple_threads(2, pop);
+	run_multiple_threads(4, pop);
 }
 }
 
@@ -230,6 +233,7 @@ main(int argc, char *argv[])
 
 			nvobj::make_persistent_atomic<persistent_map_type>(
 				pop, pop.root()->cons);
+			pop.root()->cons->insert(value_type(1, 1));
 		} else if (argv[1][0] == 'i') {
 			pop = nvobj::pool<root>::open(path, LAYOUT);
 
