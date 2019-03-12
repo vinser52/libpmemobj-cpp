@@ -93,11 +93,24 @@ insert_erase_lookup_test(nvobj::pool<root> &pop)
 		});
 	}
 
-	for (size_t i = 0; i < concurrency; ++i) {
+	for (size_t i = 0; i < concurrency / 2; ++i) {
 		threads.emplace_back([&]() {
 			for (int i = 0;
 			     i < static_cast<int>(NUMBER_ITEMS_INSERT); ++i) {
 				map->erase(i);
+			}
+		});
+	}
+
+	for (size_t i = 0; i < concurrency / 2; ++i) {
+		threads.emplace_back([&]() {
+			for (int i = 0;
+			     i < static_cast<int>(NUMBER_ITEMS_INSERT); ++i) {
+				persistent_map_type::const_accessor acc;
+				bool res = map->find(acc, i);
+
+				if (res)
+					map->erase(acc);
 			}
 		});
 	}
