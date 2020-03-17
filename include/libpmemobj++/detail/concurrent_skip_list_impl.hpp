@@ -32,7 +32,7 @@ store_with_release(persistent_pool_ptr<T> &dst, persistent_pool_ptr<T> src)
 #if LIBPMEMOBJ_CPP_VG_HELGRIND_ENABLED
 	ANNOTATE_HAPPENS_BEFORE(&dst);
 #endif
-	std::atomic_thread_fence(std::memory_order_release);
+	// std::atomic_thread_fence(std::memory_order_release);
 
 	dst = src;
 }
@@ -42,7 +42,7 @@ inline persistent_pool_ptr<T>
 load_with_acquire(const persistent_pool_ptr<T> &ptr)
 {
 	persistent_pool_ptr<T> ret = ptr;
-	std::atomic_thread_fence(std::memory_order_acquire);
+	// std::atomic_thread_fence(std::memory_order_acquire);
 #if LIBPMEMOBJ_CPP_VG_HELGRIND_ENABLED
 	ANNOTATE_HAPPENS_AFTER(&ptr);
 #endif
@@ -121,8 +121,66 @@ allocator_swap(MyAlloc &, OtherAlloc &, std::false_type)
 { /* NO SWAP */
 }
 
-template <typename Value, typename Mutex = pmem::obj::mutex,
-	  typename LockType = std::unique_lock<Mutex>>
+/**
+ * This is analog of std::shared_lock (available since C++14).
+ * Mutex - the type of the shared mutex to lock. The type must meet the
+ * SharedMutex requirements.
+ */
+template <typename Mutex>
+class read_lock {
+public:
+	using mutex_type = Mutex;
+
+	read_lock() noexcept : m(nullptr)
+	{
+	}
+
+	read_lock(read_lock &&other) noexcept : m(other.m)
+	{
+		other.m = nullptr;
+	}
+
+	explicit read_lock(mutex_type &mtx)
+	{
+		mtx.lock_shared();
+		m = &mtx;
+	}
+
+	read_lock(mutex_type &m, std::defer_lock_t t) noexcept : m(nullptr)
+	{
+	}
+
+	~read_lock()
+	{
+		if (m) {
+			m->unlock_shared();
+		}
+	}
+
+	mutex_type *
+	mutex() const noexcept
+	{
+		return m;
+	}
+
+	bool
+	owns_lock() const noexcept
+	{
+		return m != nullptr;
+	}
+
+	explicit operator bool() const noexcept
+	{
+		return owns_lock();
+	}
+
+private:
+	mutex_type *m;
+};
+
+template <typename Value, typename Mutex = pmem::obj::shared_mutex,
+	  typename LockType = std::unique_lock<Mutex>,
+	  typename ReadLockType = read_lock<Mutex>>
 class skip_list_node {
 public:
 	using value_type = Value;
@@ -134,6 +192,7 @@ public:
 	using node_pointer = persistent_pool_ptr<skip_list_node>;
 	using mutex_type = Mutex;
 	using lock_type = LockType;
+	using r_lock_type = ReadLockType;
 
 	skip_list_node(size_type levels) : height_(levels)
 	{
@@ -185,6 +244,16 @@ public:
 	next(size_type level) const
 	{
 		assert(level < height());
+		r_lock_type lock(mutex);
+		return load_with_acquire(get_next(level));
+	}
+
+	template <typename Tag>
+	node_pointer
+	next(size_type level, Tag tag) const
+	{
+		assert(level < height());
+		r_lock_type lock(mutex, tag);
 		return load_with_acquire(get_next(level));
 	}
 
@@ -255,7 +324,7 @@ private:
 		return arr[level];
 	}
 
-	mutex_type mutex;
+	mutable mutex_type mutex;
 	union {
 		value_type val;
 	};
@@ -2161,8 +2230,9 @@ private:
 
 			for (size_type level = 0; level < height; ++level) {
 				assert(prev_nodes[level]->height() > level);
-				assert(prev_nodes[level]->next(level) ==
-				       next_nodes[level]);
+				/*
+						assert(prev_nodes[level]->next(level)
+				   == next_nodes[level]);*/
 				prev_nodes[level]->set_next(level, new_node);
 			}
 
@@ -2207,7 +2277,8 @@ private:
 				locks[l] = prevs[l]->acquire();
 			}
 
-			persistent_node_ptr next = prevs[l]->next(l);
+			persistent_node_ptr next =
+				prevs[l]->next(l, std::defer_lock);
 			if (next != nexts[l])
 				return false;
 		}
