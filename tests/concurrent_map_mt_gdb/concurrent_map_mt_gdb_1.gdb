@@ -21,12 +21,20 @@ thread 10
 c
 set scheduler-locking on
 thread 11
+break gdb_sync2
+c
+del 4
+finish
 set variable loop_sync_1 = 0
 c
 c
 thread 12
+break gdb_sync3
+c
+del 5
+finish
 set variable loop_sync_2 = 0
-break gdb_sync2 thread 12
+break gdb_sync_exit thread 12
 c
 finish
 info threads
